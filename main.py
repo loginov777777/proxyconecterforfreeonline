@@ -49,8 +49,8 @@ class SearchRequest(BaseModel):
     category: str
     text: str
     parse_mode: Optional[str] = "html"
-    timeout: int = 15           # таймаут на одного бота
-    delay: float = 0.5          # задержка между ботами (в секундах)
+    timeout: int = 30           # увеличен до 30 сек
+    delay: float = 0.2          # уменьшена задержка до 0.2 сек
 
 class SearchResponse(BaseModel):
     success: bool
