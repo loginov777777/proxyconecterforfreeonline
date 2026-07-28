@@ -46,17 +46,18 @@ CATEGORIES = {
 
 # ---------- Модели ----------
 class SearchRequest(BaseModel):
-    category: str   # "tg", "vk", "phone"
+    category: str
     text: str
     parse_mode: Optional[str] = "html"
-    timeout: int = 30
+    timeout: int = 15           # таймаут на одного бота
+    delay: float = 0.5          # задержка между ботами (в секундах)
 
 class SearchResponse(BaseModel):
     success: bool
     results: Dict[str, str] = {}
     errors: Dict[str, str] = {}
 
-# ---------- Старый эндпоинт (для обратной совместимости) ----------
+# ---------- Старый эндпоинт (для совместимости) ----------
 class AskBotRequest(BaseModel):
     text: str
     bot_username: str = "@TrueCalleRobot"
@@ -107,7 +108,7 @@ async def send_to_bot(bot_username: str, text: str, timeout: int, parse_mode: st
         logger.error(f"Неожиданная ошибка для {bot_username}: {e}")
         return {"error": str(e), "success": False}
 
-# ---------- Новый эндпоинт /search ----------
+# ---------- Основной эндпоинт /search (последовательная отправка с задержкой) ----------
 @app.post("/search", dependencies=[Depends(verify_api_key)])
 async def search_category(req: SearchRequest):
     global client
@@ -118,12 +119,15 @@ async def search_category(req: SearchRequest):
     results = {}
     errors = {}
 
-    for bot in bots:
+    for i, bot in enumerate(bots):
         result = await send_to_bot(bot, req.text, req.timeout, req.parse_mode)
         if result.get("success"):
             results[bot] = result["reply"]
         else:
             errors[bot] = result.get("error", "Неизвестная ошибка")
+        # Задержка после каждого бота (кроме последнего)
+        if i < len(bots) - 1 and req.delay > 0:
+            await asyncio.sleep(req.delay)
 
     overall_success = bool(results)
     return SearchResponse(success=overall_success, results=results, errors=errors)
