@@ -49,8 +49,8 @@ class SearchRequest(BaseModel):
     category: str
     text: str
     parse_mode: Optional[str] = "html"
-    timeout: int = 60           # увеличен до 60 сек
-    delay: float = 0.0          # задержка отключена
+    timeout: int = 60          # таймаут на каждого бота
+    delay: float = 0.0         # не используется
 
 class SearchResponse(BaseModel):
     success: bool
@@ -108,7 +108,7 @@ async def send_to_bot(bot_username: str, text: str, timeout: int, parse_mode: st
         logger.error(f"Неожиданная ошибка для {bot_username}: {e}")
         return {"error": str(e), "success": False}
 
-# ---------- Основной эндпоинт /search (последовательная отправка, без задержки) ----------
+# ---------- Основной эндпоинт /search (ПАРАЛЛЕЛЬНАЯ отправка) ----------
 @app.post("/search", dependencies=[Depends(verify_api_key)])
 async def search_category(req: SearchRequest):
     global client
@@ -116,19 +116,20 @@ async def search_category(req: SearchRequest):
         raise HTTPException(status_code=400, detail="Неподдерживаемая категория")
 
     bots = CATEGORIES[req.category]
+    # Создаём задачи для всех ботов одновременно
+    tasks = [send_to_bot(bot, req.text, req.timeout, req.parse_mode) for bot in bots]
+    results_list = await asyncio.gather(*tasks, return_exceptions=True)
+    
     results = {}
     errors = {}
-
-    for i, bot in enumerate(bots):
-        result = await send_to_bot(bot, req.text, req.timeout, req.parse_mode)
-        if result.get("success"):
+    for bot, result in zip(bots, results_list):
+        if isinstance(result, Exception):
+            errors[bot] = str(result)
+        elif result.get("success"):
             results[bot] = result["reply"]
         else:
             errors[bot] = result.get("error", "Неизвестная ошибка")
-        # Задержка отключена (delay=0), поэтому sleep не выполняется
-        if req.delay > 0 and i < len(bots) - 1:
-            await asyncio.sleep(req.delay)
-
+    
     overall_success = bool(results)
     return SearchResponse(success=overall_success, results=results, errors=errors)
 
